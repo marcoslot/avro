@@ -109,6 +109,9 @@ int avro_file_writer_create_with_codec(const char *path,
 int avro_file_writer_create_with_codec_fp(FILE *fp, const char *path, int should_close,
 				avro_schema_t schema, avro_file_writer_t * writer,
 				const char *codec, size_t block_size);
+int avro_file_writer_create_with_codec_metadata_fp(FILE *fp, const char *path, int should_close,
+				avro_schema_t schema, avro_file_writer_t * writer,
+				const char *codec, size_t block_size, avro_value_t *meta);
 int avro_file_writer_open(const char *path, avro_file_writer_t * writer);
 int avro_file_writer_open_bs(const char *path, avro_file_writer_t * writer, size_t block_size);
 int avro_file_reader(const char *path, avro_file_reader_t * reader);

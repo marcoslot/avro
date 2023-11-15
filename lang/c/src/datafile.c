@@ -73,7 +73,7 @@ static int write_sync(avro_file_writer_t w)
 	return avro_write(w->writer, w->sync, sizeof(w->sync));
 }
 
-static int write_header(avro_file_writer_t w)
+static int write_header(avro_file_writer_t w, avro_value_t *extra_meta)
 {
 	int rval;
 	uint8_t version = 1;
@@ -81,6 +81,13 @@ static int write_header(avro_file_writer_t w)
 	avro_writer_t schema_writer;
 	const avro_encoding_t *enc = &avro_binary_encoding;
 	int64_t schema_len;
+	size_t extra_meta_index;
+	size_t extra_meta_size = 0;
+
+	if (extra_meta != NULL)
+	{
+		check(rval, avro_value_get_size(extra_meta, &extra_meta_size));
+	}
 
 	/* Generate random sync */
 	generate_sync(w);
@@ -88,7 +95,7 @@ static int write_header(avro_file_writer_t w)
 	check(rval, avro_write(w->writer, "Obj", 3));
 	check(rval, avro_write(w->writer, &version, 1));
 
-	check(rval, enc->write_long(w->writer, 2));
+	check(rval, enc->write_long(w->writer, 2 + extra_meta_size));
 	check(rval, enc->write_string(w->writer, "avro.codec"));
 	check(rval, enc->write_bytes(w->writer, w->codec->name, strlen(w->codec->name)));
 	check(rval, enc->write_string(w->writer, "avro.schema"));
@@ -103,6 +110,19 @@ static int write_header(avro_file_writer_t w)
 	avro_writer_free(schema_writer);
 	check(rval,
 	      enc->write_bytes(w->writer, w->schema_buf, schema_len));
+
+	for (extra_meta_index = 0; extra_meta_index < extra_meta_size; extra_meta_index++) {
+		avro_value_t child;
+		const char *key;
+		const void *value;
+		size_t value_len;
+
+		check(rval, avro_value_get_by_index(extra_meta, extra_meta_index, &child, &key));
+		check(rval, avro_value_get_bytes(&child, &value, &value_len));
+		check(rval, enc->write_string(w->writer, key));
+		check(rval, enc->write_bytes(w->writer, value, value_len));
+	}
+
 	check(rval, enc->write_long(w->writer, 0));
 	return write_sync(w);
 }
@@ -140,7 +160,7 @@ file_writer_init_fp(FILE *fp, const char *path, int should_close, const char *mo
 #endif
 
 static int
-file_writer_create(FILE *fp, const char *path, int should_close, avro_schema_t schema, avro_file_writer_t w, size_t block_size)
+file_writer_create(FILE *fp, const char *path, int should_close, avro_schema_t schema, avro_file_writer_t w, size_t block_size, avro_value_t *extra_meta)
 {
 	int rval;
 
@@ -169,7 +189,7 @@ file_writer_create(FILE *fp, const char *path, int should_close, avro_schema_t s
 	}
 
 	w->writers_schema = avro_schema_incref(schema);
-	return write_header(w);
+	return write_header(w, extra_meta);
 }
 
 int
@@ -196,6 +216,15 @@ int avro_file_writer_create_with_codec(const char *path,
 int avro_file_writer_create_with_codec_fp(FILE *fp, const char *path, int should_close,
 			avro_schema_t schema, avro_file_writer_t * writer,
 			const char *codec, size_t block_size)
+{
+	return avro_file_writer_create_with_codec_metadata_fp(fp, path, should_close, schema, writer, codec,
+														  block_size, NULL);
+}
+
+
+int avro_file_writer_create_with_codec_metadata_fp(FILE *fp, const char *path, int should_close,
+			avro_schema_t schema, avro_file_writer_t * writer,
+			const char *codec, size_t block_size, avro_value_t *extra_meta)
 {
 	avro_file_writer_t w;
 	int rval;
@@ -226,7 +255,7 @@ int avro_file_writer_create_with_codec_fp(FILE *fp, const char *path, int should
 		avro_freet(struct avro_file_writer_t_, w);
 		return rval;
 	}
-	rval = file_writer_create(fp, path, should_close, schema, w, block_size);
+	rval = file_writer_create(fp, path, should_close, schema, w, block_size, extra_meta);
 	if (rval) {
 		avro_codec_reset(w->codec);
 		avro_freet(struct avro_codec_t_, w->codec);
